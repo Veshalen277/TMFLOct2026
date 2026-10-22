@@ -1,0 +1,41 @@
+PASS PHP syntax app/customizer.php
+PASS PHP syntax app/woocommerce.php
+PASS PHP syntax app/Storefront.php
+PASS PHP syntax app/Customizer/ProductStripsControl.php
+PASS PHP syntax app/View/Composers/FrontPage.php
+PASS PHP syntax app/View/Composers/PromoSlider.php
+PASS PHP syntax app/woocommerce/related.php
+PASS setting sanitization and numeric bounds
+PASS unique section IDs and source allowlist
+PASS malformed settings safe
+PASS strip count bounded
+PASS intentional empty configuration stays empty
+PASS hidden and invalid category strips do not query or fall back
+PASS empty sale set never shows the whole catalogue
+PASS visibility filtering refills bounded query
+PASS Woo query preserves category, catalogue visibility and stock policy
+PASS configured order preserved
+PASS master toggle disables all strips
+PASS dedicated Customizer sections registered
+PASS repeater uses server-side sanitizer
+PASS Customizer numeric bounds applied
+PASS invalid select values safely fall back
+PASS all five slider image URLs configurable
+PASS Blade compilation front-page
+PASS Blade compilation layouts.app
+PASS Blade compilation sections.promo-slider
+PASS Blade compilation sections.product-strip
+PASS Blade compilation partials.product-collection
+PASS Blade compilation partials.collection-controls
+PASS Blade compilation partials.home.product
+PASS Blade compilation woocommerce.single-product.related
+PASS shared product card rendered for every product
+PASS product global restored after card rendering
+PASS related products grouped in labelled section
+PASS actual Blade fragments rendered to browser fixture
+
+PASS production build: Vite 8.2.2, 22 modules, compiled assets and manifest included.
+PASS DOM: slider wraparound, keyboard navigation, pause/autoplay, inactive slides, product scroll boundaries, image failure fallback.
+PASS DOM: Customizer add/remove/reorder/toggle/count persistence, safe text rendering, external settings refresh.
+
+NOT RUN: native browser visual verification (browser launch failed), real WordPress Customizer publishing, live WooCommerce database/cart/extension integration.

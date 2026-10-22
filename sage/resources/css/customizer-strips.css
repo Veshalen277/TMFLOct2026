@@ -1,0 +1,6 @@
+.sage-strip-editor { margin:16px 0; padding:12px; border:1px solid #c3c4c7; background:#fff; border-radius:6px; }
+.sage-strip-editor legend { font-weight:600; padding-inline:5px; }
+.sage-strip-editor label { display:block; margin-bottom:12px; }
+.sage-strip-editor input:not([type=checkbox]), .sage-strip-editor select { display:block; width:100%; margin-top:5px; }
+.sage-strip-editor input[type=checkbox] { margin-left:8px; }
+.sage-strip-editor__actions { display:flex; gap:6px; flex-wrap:wrap; }

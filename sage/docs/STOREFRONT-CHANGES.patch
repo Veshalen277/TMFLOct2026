@@ -1,0 +1,1027 @@
+--- /dev/null
++++ b/app/Customizer/ProductStripsControl.php
+@@ -0,0 +1,50 @@
++<?php
++
++namespace App\Customizer;
++
++/** Loaded by customize_register, after WordPress has loaded its control base. */
++class ProductStripsControl extends \WP_Customize_Control
++{
++    public $type = 'sage-product-strips';
++
++    public function enqueue()
++    {
++        $path = 'resources/js/customizer-strips.js';
++        wp_enqueue_script('sage-customizer-strips', get_theme_file_uri($path), ['customize-controls'], (string) filemtime(get_theme_file_path($path)), true);
++        $terms = taxonomy_exists('product_cat') ? get_terms(['taxonomy' => 'product_cat', 'hide_empty' => false, 'orderby' => 'name']) : [];
++        $categories = [];
++        if (! is_wp_error($terms)) {
++            $names = [];
++            foreach ($terms as $term) $names[$term->term_id] = $term->name;
++            foreach ($terms as $term) {
++                $label = [];
++                foreach (array_reverse(get_ancestors($term->term_id, 'product_cat', 'taxonomy')) as $id) $label[] = $names[$id] ?? '';
++                $label[] = $term->name;
++                $categories[] = ['id' => $term->term_id, 'name' => implode(' › ', array_filter($label))];
++            }
++        }
++        wp_localize_script('sage-customizer-strips', 'sageStripControl', [
++            'categories' => $categories,
++            'labels' => [
++                'block' => __('Product strip', 'sage'), 'heading' => __('Heading', 'sage'),
++                'enabled' => __('Show this strip', 'sage'), 'source' => __('Products to show', 'sage'),
++                'latest' => __('Newest products', 'sage'), 'category' => __('Selected category', 'sage'),
++                'featured' => __('Featured products', 'sage'), 'sale' => __('On-sale products', 'sage'),
++                'categoryLabel' => __('Category (optional filter for other sources)', 'sage'),
++                'all' => __('All categories / select a category', 'sage'), 'missing' => __('Unavailable category', 'sage'),
++                'count' => __('Product count (1–24)', 'sage'), 'columns' => __('Desktop columns (2–6)', 'sage'),
++                'layout' => __('Layout', 'sage'), 'grid' => __('Grid', 'sage'), 'scroll' => __('Scrollable row', 'sage'),
++                'up' => __('Move up', 'sage'), 'down' => __('Move down', 'sage'), 'remove' => __('Remove', 'sage'),
++                'add' => __('Add product strip', 'sage'), 'limit' => __('Maximum 20 strips. Empty categories are hidden on the front page.', 'sage'),
++            ],
++        ]);
++        wp_enqueue_style('sage-customizer-strips', get_theme_file_uri('resources/css/customizer-strips.css'), [], (string) filemtime(get_theme_file_path('resources/css/customizer-strips.css')));
++    }
++
++    protected function render_content()
++    {
++        echo '<span class="customize-control-title">'.esc_html($this->label).'</span>';
++        echo '<p class="description">'.esc_html($this->description).'</p>';
++        echo '<div class="sage-strips-editor"></div><noscript>'.esc_html__('Enable JavaScript to edit product strips.', 'sage').'</noscript>';
++    }
++}
+--- /dev/null
++++ b/app/Storefront.php
+@@ -0,0 +1,86 @@
++<?php
++
++namespace App;
++
++/** Shared, bounded settings and product queries for the Customizer and views. */
++final class Storefront
++{
++    public static function number($value, int $min, int $max): int
++    {
++        return max($min, min($max, (int) $value));
++    }
++
++    public static function defaults(): string
++    {
++        return wp_json_encode([
++            ['id' => 'specials', 'enabled' => true, 'heading' => __('Good finds. Better prices.', 'sage'), 'source' => 'sale', 'category' => 0, 'count' => 4, 'layout' => 'grid', 'columns' => 4],
++            ['id' => 'new-arrivals', 'enabled' => true, 'heading' => __('Meet your next favourite.', 'sage'), 'source' => 'latest', 'category' => 0, 'count' => 8, 'layout' => 'scroll', 'columns' => 4],
++        ]);
++    }
++
++    public static function sanitizeStrips($value): string
++    {
++        $rows = is_string($value) ? json_decode($value, true) : $value;
++        if (! is_array($rows)) {
++            return '[]';
++        }
++        $clean = $used = [];
++        foreach (array_slice($rows, 0, 20) as $index => $row) {
++            if (! is_array($row)) continue;
++            $id = sanitize_key(is_scalar($row['id'] ?? null) ? (string) $row['id'] : '');
++            if (! $id || isset($used[$id])) $id = 'strip-'.($index + 1);
++            while (isset($used[$id])) $id .= '-copy';
++            $used[$id] = true;
++            $source = $row['source'] ?? 'latest';
++            $clean[] = [
++                'id' => $id,
++                'enabled' => rest_sanitize_boolean($row['enabled'] ?? true),
++                'heading' => sanitize_text_field(is_scalar($row['heading'] ?? null) ? (string) $row['heading'] : ''),
++                'source' => in_array($source, ['latest', 'category', 'featured', 'sale'], true) ? $source : 'latest',
++                'category' => absint(is_scalar($row['category'] ?? null) ? $row['category'] : 0),
++                'count' => self::number(is_scalar($row['count'] ?? null) ? $row['count'] : 8, 1, 24),
++                'layout' => ($row['layout'] ?? '') === 'grid' ? 'grid' : 'scroll',
++                'columns' => self::number(is_scalar($row['columns'] ?? null) ? $row['columns'] : 4, 2, 6),
++            ];
++        }
++        return wp_json_encode($clean);
++    }
++
++    public static function strips(): array
++    {
++        if (! function_exists('wc_get_products') || ! get_theme_mod('sage_product_strips_enabled', true)) return [];
++        $settings = json_decode(self::sanitizeStrips(get_theme_mod('sage_product_strips', self::defaults())), true);
++        $blocks = [];
++        foreach ($settings as $block) {
++            if (! $block['enabled']) continue;
++            $term = $block['category'] ? get_term($block['category'], 'product_cat') : null;
++            // Never silently show the whole shop for a deleted/invalid category.
++            if (($block['category'] && (! $term || is_wp_error($term))) || ($block['source'] === 'category' && ! $term)) continue;
++            $args = ['limit' => $block['count'], 'status' => 'publish', 'parent' => 0, 'visibility' => 'catalog', 'orderby' => 'date', 'order' => 'DESC'];
++            if ($term) $args['category'] = [$term->slug];
++            if ($block['source'] === 'featured') $args['featured'] = true;
++            if ($block['source'] === 'sale') {
++                $args['include'] = wc_get_product_ids_on_sale();
++                if (! $args['include']) continue;
++            }
++            if (get_option('woocommerce_hide_out_of_stock_items') === 'yes') $args['stock_status'] = ['instock', 'onbackorder'];
++            $products = [];
++            // A bounded refill also honours extension-level visibility restrictions.
++            for ($page = 1; $page <= 3 && count($products) < $block['count']; $page++) {
++                $batch = wc_get_products($args + ['page' => $page]);
++                foreach ($batch as $product) {
++                    if ($product->is_visible()) $products[$product->get_id()] = $product;
++                    if (count($products) === $block['count']) break;
++                }
++                if (count($batch) < $block['count']) break;
++            }
++            if (! $products) continue;
++            $url = $term ? get_term_link($term) : wc_get_page_permalink('shop');
++            $block['url'] = is_wp_error($url) ? '' : $url;
++            $block['heading'] = $block['heading'] ?: ($term ? $term->name : __('Explore the collection', 'sage'));
++            $block['products'] = array_values($products);
++            $blocks[] = $block;
++        }
++        return $blocks;
++    }
++}
+--- a/app/View/Composers/FrontPage.php
++++ b/app/View/Composers/FrontPage.php
+@@ -1,14 +1,8 @@
+ <?php
+-
+-
+ 
+ namespace App\View\Composers;
+ 
+-
+-
+ use Roots\Acorn\View\Composer;
+-
+-
+ 
+ class FrontPage extends Composer
+ 
+@@ -16,17 +10,19 @@
+ 
+     protected static $views = ['front-page'];
+ 
+-
+-
+     public function with(): array
+ 
+     {
+ 
+-        return ['storefront' => $this->storefront()];
++        $strips = \App\Storefront::strips();
++        $storefront = $this->storefront();
++        $storefront['specialsAnchor'] = '';
++        foreach ($strips as $strip) {
++            if ($strip['source'] === 'sale') { $storefront['specialsAnchor'] = 'home-strip-'.$strip['id']; break; }
++        }
++        return ['storefront' => $storefront, 'productStrips' => $strips];
+ 
+     }
+-
+-
+ 
+     public function storefront(): array
+ 
+--- a/app/View/Composers/PromoSlider.php
++++ b/app/View/Composers/PromoSlider.php
+@@ -22,13 +22,16 @@
+         $defaults = self::defaults();
+         if (get_theme_mod('sage_promo_enabled', true)) {
+             for ($i = 1; $i <= 5; $i++) {
++                if (! get_theme_mod("sage_promo_{$i}_enabled", true)) continue;
+                 $slide = [];
+                 foreach (['eyebrow', 'title', 'text', 'label'] as $key) {
+                     $slide[$key] = (string) get_theme_mod("sage_promo_{$i}_{$key}", $defaults[$i][$key] ?? '');
+                 }
+                 $slide['image'] = absint(get_theme_mod("sage_promo_{$i}_image", 0));
+                 if ($slide['image'] && ! wp_attachment_is_image($slide['image'])) $slide['image'] = 0;
+-                if (! trim($slide['title']) && ! $slide['image']) continue;
++                $slide['imageUrl'] = esc_url_raw(get_theme_mod("sage_promo_{$i}_image_url", $i <= 2 ? "https://via.placeholder.com/1920x720/333333/ffffff?text=Store+Highlight+{$i}" : ''));
++                $slide['position'] = \App\Storefront::number(get_theme_mod("sage_promo_{$i}_position", $i * 10), 1, 100);
++                if (! trim($slide['title']) && ! $slide['image'] && ! $slide['imageUrl']) continue;
+                 $slide['url'] = esc_url_raw(get_theme_mod("sage_promo_{$i}_url", ''));
+                 if (! $slide['url'] && function_exists('wc_get_page_permalink')) {
+                     $shop = wc_get_page_id('shop');
+@@ -37,6 +40,15 @@
+                 $slides[] = $slide;
+             }
+         }
+-        return ['promoSlides' => $slides, 'promoAutoplay' => (bool) get_theme_mod('sage_promo_autoplay', false)];
++        usort($slides, static fn ($a, $b) => $a['position'] <=> $b['position']);
++        return [
++            'promoSlides' => $slides,
++            'promoAutoplay' => (bool) get_theme_mod('sage_promo_autoplay', false),
++            'promoArrows' => (bool) get_theme_mod('sage_promo_arrows', true),
++            'promoInterval' => \App\Storefront::number(get_theme_mod('sage_promo_interval', 7), 4, 20),
++            'promoHeight' => \App\Storefront::number(get_theme_mod('sage_promo_height', 520), 280, 800),
++            'promoMobileHeight' => \App\Storefront::number(get_theme_mod('sage_promo_mobile_height', 440), 280, 640),
++            'promoOverlay' => \App\Storefront::number(get_theme_mod('sage_promo_overlay', 55), 20, 85),
++        ];
+     }
+ }
+--- a/app/customizer.php
++++ b/app/customizer.php
+@@ -1,7 +1,5 @@
+ <?php
+ 
+-
+-
+ /**
+ 
+  * Customizer settings.
+@@ -18,12 +16,8 @@
+ 
+  */
+ 
+-
+-
+ namespace App;
+ 
+-
+-
+ add_action('customize_register', function ($wp_customize) {
+ 
+     $wp_customize->add_panel('ighoosen_panel', [
+@@ -34,8 +28,6 @@
+ 
+     ]);
+ 
+-
+-
+     $wp_customize->add_section('ighoosen_topbar', [
+ 
+         'title' => __('Top Bar', 'sage'),
+@@ -62,8 +54,6 @@
+ 
+     ]);
+ 
+-
+-
+     $wp_customize->add_section('ighoosen_social', [
+ 
+         'title' => __('Social Links', 'sage'),
+@@ -72,8 +62,6 @@
+ 
+     ]);
+ 
+-
+-
+     foreach (['facebook', 'instagram'] as $platform) {
+ 
+         $wp_customize->add_setting("ighoosen_{$platform}", [
+@@ -96,10 +84,6 @@
+ 
+ });
+ 
+-
+-
+-
+-
+ /** Native home-page content controls. */
+ 
+ add_action('customize_register', function ($wp_customize) {
+@@ -149,7 +133,6 @@
+     ]));
+ 
+ });
+-
+ 
+ /** Optional contact details; no admin email or invented business details are exposed. */
+ add_action('customize_register', function ($wp_customize) {
+@@ -189,9 +172,9 @@
+ add_action('customize_register', function ($wp_customize) {
+     $wp_customize->add_section('sage_promo', [
+         'title' => __('Homepage Slider', 'sage'), 'priority' => 34,
+-        'description' => __('Appears below the category strip and above the jumbotron. Up to five slides. Clear a slide’s title and image to hide it. Images are optional; blank links use the published WooCommerce shop.', 'sage'),
+-    ]);
+-    foreach (['enabled' => [__('Show slider', 'sage'), true], 'autoplay' => [__('Automatically advance every 7 seconds', 'sage'), false]] as $key => [$label, $default]) {
++        'description' => __('Full-width banner directly below the header, above category navigation. Up to five slides; use their visibility and position controls to curate the order. Uploaded images replace placeholder URLs. Blank destination links use the published shop.', 'sage'),
++    ]);
++    foreach (['enabled' => [__('Show slider', 'sage'), true], 'autoplay' => [__('Automatically advance slides', 'sage'), false]] as $key => [$label, $default]) {
+         $id = 'sage_promo_'.$key;
+         $wp_customize->add_setting($id, ['default' => $default, 'sanitize_callback' => 'rest_sanitize_boolean']);
+         $wp_customize->add_control($id, ['section' => 'sage_promo', 'label' => $label, 'type' => 'checkbox']);
+@@ -208,3 +191,56 @@
+         $wp_customize->add_control(new \WP_Customize_Media_Control($wp_customize, $id, ['section' => 'sage_promo', 'label' => sprintf(__('Slide %d — image', 'sage'), $i), 'mime_type' => 'image']));
+     }
+ });
++
++/** Refresh transport renders the real Blade queries inside Customizer previews. */
++add_action('customize_register', function ($customize) {
++    $customize->add_panel('sage_storefront_layouts', ['title' => __('Storefront Layouts', 'sage'), 'priority' => 33]);
++    foreach (['sage_product_strips' => __('Front Page Product Strips', 'sage'), 'sage_wc_layouts' => __('WooCommerce Layouts', 'sage')] as $id => $title) {
++        $customize->add_section($id, ['title' => $title, 'panel' => 'sage_storefront_layouts']);
++    }
++    $field = static function ($id, $section, $label, $default, $type = 'checkbox', $choices = [], $min = 0, $max = 100) use ($customize) {
++        $sanitize = match ($type) {
++            'checkbox' => 'rest_sanitize_boolean',
++            'number', 'range' => static fn ($value) => Storefront::number($value, $min, $max),
++            'select' => static fn ($value) => is_scalar($value) && array_key_exists($value, $choices) ? $value : $default,
++            'url' => 'esc_url_raw',
++            default => 'sanitize_text_field',
++        };
++        $customize->add_setting($id, ['default' => $default, 'sanitize_callback' => $sanitize, 'transport' => 'refresh']);
++        $customize->add_control($id, ['section' => $section, 'label' => $label, 'type' => $type, 'choices' => $choices, 'input_attrs' => ['min' => $min, 'max' => $max, 'step' => 1]]);
++    };
++    $field('sage_product_strips_enabled', 'sage_product_strips', __('Show product strips', 'sage'), true);
++    $customize->add_setting('sage_product_strips', ['default' => Storefront::defaults(), 'sanitize_callback' => [Storefront::class, 'sanitizeStrips'], 'transport' => 'refresh']);
++    $customize->add_control(new \App\Customizer\ProductStripsControl($customize, 'sage_product_strips', [
++        'section' => 'sage_product_strips', 'label' => __('Product strips', 'sage'),
++        'description' => __('Add, remove, reorder and hide strips. Select a category for category strips; newest, featured and sale strips can optionally use a category filter. Up to 20 strips, with 24 products each.', 'sage'),
++    ]));
++    $field('sage_strips_spacing', 'sage_product_strips', __('Section spacing', 'sage'), 'comfortable', 'select', ['compact' => __('Compact', 'sage'), 'comfortable' => __('Comfortable', 'sage')]);
++
++    $field('sage_related_enabled', 'sage_wc_layouts', __('Show related products', 'sage'), true);
++    $field('sage_related_refined', 'sage_wc_layouts', __('Use the matching theme card layout', 'sage'), true);
++    $field('sage_related_heading', 'sage_wc_layouts', __('Related products heading', 'sage'), __('You may also like', 'sage'), 'text');
++    $field('sage_related_description', 'sage_wc_layouts', __('Related products introduction', 'sage'), __('A few more finds from the collection.', 'sage'), 'text');
++    $field('sage_related_layout', 'sage_wc_layouts', __('Related products layout', 'sage'), 'grid', 'select', ['grid' => __('Grid', 'sage'), 'scroll' => __('Scrollable row', 'sage')]);
++    $field('sage_related_count', 'sage_wc_layouts', __('Related product count', 'sage'), 4, 'number', [], 1, 24);
++    $field('sage_related_columns', 'sage_wc_layouts', __('Related desktop columns', 'sage'), 4, 'number', [], 2, 6);
++    $field('sage_related_shop_link', 'sage_wc_layouts', __('Show a shop link beside related products', 'sage'), true);
++    foreach (['hover' => __('Enable card hover effects', 'sage'), 'ratings' => __('Show card ratings', 'sage'), 'cart' => __('Show card purchase buttons', 'sage')] as $key => $label) {
++        $field('sage_cards_'.$key, 'sage_wc_layouts', $label, true);
++    }
++
++    // Existing homepage content stays available and can be independently hidden.
++    foreach (['hero' => __('Show the original introduction below the slider', 'sage'), 'categories' => __('Show category tiles', 'sage'), 'story' => __('Show the store story', 'sage'), 'reviews' => __('Show customer reviews', 'sage'), 'help' => __('Show help and FAQs', 'sage'), 'cta' => __('Show the final shop banner', 'sage')] as $key => $label) {
++        $field('sage_home_show_'.$key, 'sage_home', $label, true);
++    }
++    $field('sage_promo_arrows', 'sage_promo', __('Show previous/next buttons', 'sage'), true);
++    $field('sage_promo_interval', 'sage_promo', __('Autoplay interval (seconds)', 'sage'), 7, 'number', [], 4, 20);
++    $field('sage_promo_height', 'sage_promo', __('Desktop slider height (pixels)', 'sage'), 520, 'number', [], 280, 800);
++    $field('sage_promo_mobile_height', 'sage_promo', __('Mobile slider height (pixels)', 'sage'), 440, 'number', [], 280, 640);
++    $field('sage_promo_overlay', 'sage_promo', __('Image darkening (%)', 'sage'), 55, 'range', [], 20, 85);
++    for ($i = 1; $i <= 5; $i++) {
++        $field("sage_promo_{$i}_enabled", 'sage_promo', sprintf(__('Slide %d — show', 'sage'), $i), true);
++        $field("sage_promo_{$i}_position", 'sage_promo', sprintf(__('Slide %d — position (lowest first)', 'sage'), $i), $i * 10, 'number', [], 1, 100);
++        $field("sage_promo_{$i}_image_url", 'sage_promo', sprintf(__('Slide %d — fallback image URL', 'sage'), $i), $i <= 2 ? "https://via.placeholder.com/1920x720/333333/ffffff?text=Store+Highlight+{$i}" : '', 'url');
++    }
++}, 20);
+--- /dev/null
++++ b/app/woocommerce/related.php
+@@ -0,0 +1,8 @@
++<?php
++/** WooCommerce query stays native; only its related-products view is replaced. */
++defined('ABSPATH') || exit;
++
++$products = array_values(array_filter($related_products ?? [], static fn ($item) => $item instanceof \WC_Product && $item->is_visible()));
++if ($products) {
++    echo \Roots\view('woocommerce.single-product.related', ['products' => $products])->render();
++}
+--- a/app/woocommerce.php
++++ b/app/woocommerce.php
+@@ -1,6 +1,4 @@
+ <?php
+-
+-
+ 
+ /**
+ 
+@@ -18,11 +16,31 @@
+ 
+  */
+ 
+-
+-
+ namespace App;
+ 
++// Keep WooCommerce's related-product selection, filters and exclusions intact.
++add_action('wp', function () {
++    if (! get_theme_mod('sage_related_enabled', true)) {
++        remove_action('woocommerce_after_single_product_summary', 'woocommerce_output_related_products', 20);
++    }
++});
+ 
++add_filter('woocommerce_output_related_products_args', function ($args) {
++    $args['posts_per_page'] = Storefront::number(get_theme_mod('sage_related_count', 4), 1, 24);
++    $args['columns'] = Storefront::number(get_theme_mod('sage_related_columns', 4), 2, 6);
++    return $args;
++});
++
++add_filter('woocommerce_product_related_products_heading', function ($heading) {
++    return get_theme_mod('sage_related_heading', __('You may also like', 'sage')) ?: $heading;
++});
++
++add_filter('wc_get_template', function ($template, $name) {
++    if ($name === 'single-product/related.php' && get_theme_mod('sage_related_refined', true)) {
++        return get_theme_file_path('app/woocommerce/related.php');
++    }
++    return $template;
++}, 20, 2);
+ 
+ /**
+ 
+@@ -42,8 +60,6 @@
+ 
+     }
+ 
+-
+-
+     add_theme_support('woocommerce', [
+ 
+         'thumbnail_image_width' => 480,
+@@ -55,8 +71,6 @@
+     add_theme_support('wc-product-gallery-lightbox');
+ 
+     add_theme_support('wc-product-gallery-slider');
+-
+-
+ 
+     /**
+ 
+@@ -75,8 +89,6 @@
+     remove_action('woocommerce_sidebar', 'woocommerce_get_sidebar');
+ 
+ });
+-
+-
+ 
+ /**
+ 
+@@ -118,21 +130,15 @@
+ 
+     }
+ 
+-
+-
+     if (is_woocommerce() || is_cart() || is_checkout() || is_account_page()) {
+ 
+         return get_theme_file_path('woocommerce.php');
+ 
+     }
+ 
+-
+-
+     return $template;
+ 
+ }, 101);
+-
+-
+ 
+ /**
+ 
+@@ -152,13 +158,9 @@
+ 
+     $fragments['.cart-count'] = '<span class="cart-count">'.($cart ? $cart->get_cart_contents_count() : 0).'</span>';
+ 
+-
+-
+     return $fragments;
+ 
+ });
+-
+-
+ 
+ // Header badge uses WooCommerce's authoritative fragments, including cached pages.
+ 
+@@ -172,10 +174,6 @@
+ 
+ });
+ 
+-
+-
+-
+-
+ // Native WooCommerce loop buttons on the custom front page use its standard AJAX handler.
+ 
+ add_action('wp_enqueue_scripts', function () {
+--- a/resources/css/app.css
++++ b/resources/css/app.css
+@@ -1,3 +1,5 @@
++@import "tailwindcss/theme" layer(theme);
++@import "tailwindcss/utilities" layer(utilities);
+ @import "./woocommerce.css";
+ @import "./motion.css";
+ @import "./home.css";
+@@ -5,6 +7,8 @@
+ @import "./contact.css";
+ @import "./category-strip.css";
+ @import "./promo-slider.css";
++@import "./storefront-layouts.css";
++@source "../views";
+ 
+ /* ══════════════════════════════════════════════════════
+    IG HOOSEN — Monochrome Retail Theme
+--- /dev/null
++++ b/resources/css/customizer-strips.css
+@@ -0,0 +1,6 @@
++.sage-strip-editor { margin:16px 0; padding:12px; border:1px solid #c3c4c7; background:#fff; border-radius:6px; }
++.sage-strip-editor legend { font-weight:600; padding-inline:5px; }
++.sage-strip-editor label { display:block; margin-bottom:12px; }
++.sage-strip-editor input:not([type=checkbox]), .sage-strip-editor select { display:block; width:100%; margin-top:5px; }
++.sage-strip-editor input[type=checkbox] { margin-left:8px; }
++.sage-strip-editor__actions { display:flex; gap:6px; flex-wrap:wrap; }
+--- /dev/null
++++ b/resources/css/storefront-layouts.css
+@@ -0,0 +1,66 @@
++/* Scoped components share the theme's typography and Tailwind spacing rhythm. */
++#app .sf-hero { position:relative; width:100%; max-width:none; margin:0; color:#fff; background:#272727; }
++#app .sf-hero__viewport { display:flex; overflow-x:auto; scroll-snap-type:x mandatory; }
++#app .sf-hero__slide { position:relative; isolation:isolate; display:flex; align-items:center; flex:0 0 100%; min-width:0; min-height:var(--sf-hero-height,520px); scroll-snap-align:start; padding:64px max(32px,calc((100% - 1280px)/2)) 100px; }
++#app .sf-hero__image { position:absolute; z-index:-2; inset:0; background:linear-gradient(120deg,#3e3e3e,#171717); overflow:hidden; }
++#app .sf-hero__image img { width:100%; height:100%; display:block; object-fit:cover; }
++#app .sf-hero__slide::after { content:""; position:absolute; z-index:-1; inset:0; background:#000; opacity:var(--sf-overlay,.55); pointer-events:none; }
++#app .sf-hero__copy { width:min(760px,100%); }
++#app .sf-hero__eyebrow { font:600 11px/1.6 var(--font-sans); letter-spacing:.18em; text-transform:uppercase; margin:0 0 20px; }
++#app .sf-hero h2 { font:600 clamp(38px,5.2vw,78px)/1.06 var(--font-heading); letter-spacing:-.04em; text-wrap:balance; overflow-wrap:anywhere; color:inherit; margin:0; }
++#app .sf-hero__text { font:400 16px/1.75 var(--font-sans); max-width:52ch; margin:24px 0 0; color:#ededed; }
++#app .sf-hero__link { display:inline-flex; align-items:center; gap:32px; min-height:48px; margin-top:28px; padding:12px 20px; border:1px solid #fff; background:#fff; color:#171717; text-decoration:none; font:600 13px/1.5 var(--font-sans); border-radius:4px; }
++#app .sf-hero__link:hover { background:#e5e5e5; }
++#app .sf-hero__controls { position:absolute; inset-inline-end:max(32px,calc((100% - 1280px)/2)); bottom:24px; display:flex; align-items:center; gap:12px; }
++#app .sf-hero__controls button,#app .sf-collection__controls button { display:inline-grid; place-items:center; width:44px; height:44px; border:1px solid currentColor; border-radius:50%; background:transparent; color:inherit; cursor:pointer; font:18px/1 var(--font-sans); }
++#app .sf-hero__controls span { min-width:42px; text-align:center; font:12px/1.5 var(--font-sans); font-variant-numeric:tabular-nums; }
++#app .sf-hero.is-enhanced .sf-hero__viewport { overflow:hidden; }
++#app .sf-hero [hidden],#app .sf-collection [hidden] { display:none!important; }
++#app .sf-hero.is-enhanced .sf-hero__slide:not([hidden]) .sf-hero__copy { animation:sf-enter .35s ease-out both; }
++@keyframes sf-enter { from { opacity:.6; transform:translateY(8px); } to { opacity:1; transform:none; } }
++#app .sf-collection { --hf-ink:#171717; --hf-yellow:#d5d5d5; color:var(--hf-ink); padding-block:64px; clear:both; min-width:0; }
++#app .sf-collection--compact { padding-block:32px; }
++#app .sf-collection--related { display:flow-root; float:none; grid-column:1 / -1; border-top:1px solid var(--border,#e5e5e5); margin-top:48px; width:100%; max-width:none; }
++#app .sf-collection__header { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; flex-wrap:wrap; margin-bottom:28px; }
++#app .sf-collection__header h2 { font:600 clamp(30px,3vw,46px)/1.12 var(--font-heading); letter-spacing:-.04em; margin:0; color:inherit; overflow-wrap:anywhere; }
++#app .sf-collection__intro { margin:12px 0 0; font:14px/1.7 var(--font-sans); color:#666; }
++#app .sf-collection__actions { display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
++#app .sf-collection__link { color:inherit; text-decoration:underline; text-underline-offset:5px; font:500 12px/1.6 var(--font-sans); padding-block:12px; }
++#app .sf-collection__controls { display:flex; gap:8px; }
++#app .sf-collection__controls button { border-color:#d4d4d4; background:#fff; }
++#app .sf-collection__controls button:hover { border-color:#171717; }
++#app .sf-collection__controls button[aria-disabled=true] { opacity:.35; cursor:default; }
++#app .sf-collection__products { display:grid; gap:24px; align-items:stretch; }
++#app .sf-collection__products--grid { grid-template-columns:repeat(var(--sf-columns,4),minmax(0,1fr)); }
++#app .sf-collection__products--scroll { grid-auto-flow:column; grid-auto-columns:calc((100% - (var(--sf-columns,4) - 1)*24px)/var(--sf-columns,4)); overflow-x:auto; overscroll-behavior-inline:contain; scroll-snap-type:x mandatory; scroll-padding-inline:2px; padding:2px 2px 16px; scrollbar-width:thin; }
++#app .sf-collection .hf-product { min-width:0; margin:0; scroll-snap-align:start; height:100%; }
++#app .sf-collection .hf-product__body { display:flex; flex:1; flex-direction:column; padding:20px; }
++#app .sf-collection .hf-product h3 { font:500 14px/1.55 var(--font-sans); margin:0 0 12px; overflow-wrap:anywhere; }
++#app .sf-collection .hf-product a { color:inherit; text-decoration:none; }
++#app .sf-collection .hf-product__price { margin-top:auto; }
++#app .sf-collection .hf-product__action { padding-top:16px; margin-top:0; }
++#app .sf-collection .hf-product__action .button { width:100%; min-height:44px; white-space:normal; }
++#app .hf-product--no-hover:hover { box-shadow:none; border-color:#e9e9e9; }
++#app .hf-product--no-hover:hover .hf-product__image img { transform:none; }
++#app .hf-product--no-hover:hover .hf-product__peek { transform:none; background:#fff; color:inherit; }
++#app :is(.sf-collection,.sf-hero) :is(a,button,[tabindex]):focus-visible { outline:2px solid currentColor; outline-offset:4px; }
++@media(max-width:1024px) {
++  #app .sf-collection__products--grid { grid-template-columns:repeat(min(var(--sf-columns,4),3),minmax(0,1fr)); }
++  #app .sf-collection__products--scroll { grid-auto-columns:calc((100% - 48px)/3); }
++}
++@media(max-width:640px) {
++  #app .sf-hero__slide { min-height:var(--sf-hero-mobile-height,440px); padding:40px 20px 88px; }
++  #app .sf-hero__text { font-size:14px; margin-top:18px; }
++  #app .sf-hero__controls { inset-inline-end:20px; bottom:20px; }
++  #app .sf-collection { padding-block:40px; }
++  #app .sf-collection--compact { padding-block:24px; }
++  #app .sf-collection__header { margin-bottom:20px; gap:12px; }
++  #app .sf-collection__products { gap:12px; }
++  #app .sf-collection__products--grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
++  #app .sf-collection__products--scroll { grid-auto-columns:76%; }
++  #app .sf-collection .hf-product__body { padding:12px; }
++}
++@media(prefers-reduced-motion:reduce) {
++  #app .sf-hero *,#app .sf-collection * { animation:none!important; transition:none!important; scroll-behavior:auto!important; }
++  #app .sf-collection .hf-product:hover img { transform:none; }
++}
+--- a/resources/js/app.js
++++ b/resources/js/app.js
+@@ -1,4 +1,5 @@
+ import { initPromoSlider } from './promo-slider.js';
++import { initStorefrontLayouts } from './storefront-layouts.js';
+ import { initMotion } from './motion.js';
+ import { initCategoryStrip } from './category-strip.js';
+ 
+@@ -10,6 +11,7 @@
+ document.addEventListener('DOMContentLoaded', () => {
+   initCategoryStrip();
+   initPromoSlider();
++  initStorefrontLayouts();
+ 
+   /* ══════════════════════════════════════
+      HERO SLIDER
+--- /dev/null
++++ b/resources/js/customizer-strips.js
+@@ -0,0 +1,67 @@
++/* Native WordPress Customizer control; no third-party repeater dependency. */
++(function (api, config) {
++  'use strict';
++  const labels = config.labels;
++  api.controlConstructor['sage-product-strips'] = api.Control.extend({
++    ready: function () {
++      const control = this;
++      const root = control.container[0].querySelector('.sage-strips-editor');
++      const parse = value => { try { const rows = JSON.parse(value); return Array.isArray(rows) ? rows : []; } catch { return []; } };
++      let rows = parse(control.setting.get());
++      let writing = false;
++      const save = () => { writing = true; control.setting.set(JSON.stringify(rows)); writing = false; };
++      const button = (text, action, disabled = false) => {
++        const el = document.createElement('button'); el.type = 'button'; el.className = 'button';
++        el.textContent = text; el.disabled = disabled; el.addEventListener('click', action); return el;
++      };
++      const render = (focusId, action = 'heading') => {
++        root.replaceChildren();
++        rows.forEach((row, index) => {
++          const box = document.createElement('fieldset'); box.className = 'sage-strip-editor';
++          const legend = document.createElement('legend'); legend.textContent = `${labels.block} ${index + 1}`; box.append(legend);
++          function field(key, label, type = 'text', options = null) {
++            const wrap = document.createElement('label'); wrap.textContent = label;
++            const input = document.createElement(options ? 'select' : 'input');
++            input.dataset.row = row.id; input.dataset.field = key;
++            if (options) options.forEach(([value, text]) => { const option = document.createElement('option'); option.value = value; option.textContent = text; input.append(option); });
++            else input.type = type;
++            if (type === 'checkbox') input.checked = Boolean(row[key]); else input.value = row[key] ?? '';
++            if (type === 'number') { input.min = key === 'count' ? '1' : '2'; input.max = key === 'count' ? '24' : '6'; input.step = '1'; }
++            input.addEventListener('change', () => {
++              row[key] = type === 'checkbox' ? input.checked : (type === 'number' || key === 'category') ? Number(input.value) : input.value;
++              if (type === 'number') { row[key] = Math.max(Number(input.min), Math.min(Number(input.max), Number.isFinite(row[key]) ? row[key] : Number(input.min))); input.value = row[key]; }
++              save();
++            });
++            wrap.append(input); box.append(wrap);
++          }
++          field('enabled', labels.enabled, 'checkbox'); field('heading', labels.heading);
++          field('source', labels.source, 'text', ['latest', 'category', 'featured', 'sale'].map(key => [key, labels[key]]));
++          const categories = [[0, labels.all], ...config.categories.map(term => [term.id, term.name])];
++          if (row.category && !config.categories.some(term => Number(term.id) === Number(row.category))) categories.push([row.category, `${labels.missing} #${row.category}`]);
++          field('category', labels.categoryLabel, 'text', categories);
++          field('count', labels.count, 'number'); field('columns', labels.columns, 'number');
++          field('layout', labels.layout, 'text', ['grid', 'scroll'].map(key => [key, labels[key]]));
++          const actions = document.createElement('div'); actions.className = 'sage-strip-editor__actions';
++          const move = delta => { [rows[index], rows[index + delta]] = [rows[index + delta], rows[index]]; save(); render(row.id, delta < 0 ? 'up' : 'down'); };
++          const up = button(labels.up, () => move(-1), index === 0); up.dataset.row = row.id; up.dataset.field = 'up';
++          const down = button(labels.down, () => move(1), index === rows.length - 1); down.dataset.row = row.id; down.dataset.field = 'down';
++          actions.append(up, down, button(labels.remove, () => { rows.splice(index, 1); save(); render(rows[Math.min(index, rows.length - 1)]?.id); }));
++          box.append(actions); root.append(box);
++        });
++        const add = button(labels.add, () => {
++          const row = { id: `strip-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, enabled: true, heading: '', source: 'latest', category: 0, count: 8, columns: 4, layout: 'scroll' };
++          rows.push(row); save(); render(row.id);
++        }, rows.length >= 20);
++        root.append(add);
++        const note = document.createElement('p'); note.textContent = labels.limit; root.append(note);
++        if (focusId) {
++          const target = [...root.querySelectorAll('[data-row]')].find(el => el.dataset.row === focusId && el.dataset.field === action && !el.disabled)
++            || [...root.querySelectorAll('[data-row]')].find(el => el.dataset.row === focusId && el.dataset.field === 'heading');
++          target?.focus();
++        } else if (action !== 'initial') add.focus();
++      };
++      control.setting.bind(value => { if (!writing) { rows = parse(value); render(undefined, 'initial'); } });
++      render(undefined, 'initial');
++    },
++  });
++})(wp.customize, sageStripControl);
+--- /dev/null
++++ b/resources/js/storefront-layouts.js
+@@ -0,0 +1,94 @@
++/** Native scrolling remains available when JavaScript is disabled. */
++export function initStorefrontLayouts() {
++  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
++  document.querySelectorAll('[data-product-collection]').forEach(root => {
++    const track = root.querySelector('[data-collection-track]');
++    const controls = root.querySelector('[data-collection-controls]');
++    if (!track || !controls || root.dataset.collectionReady) return;
++    root.dataset.collectionReady = 'true';
++    const previous = controls.querySelector('[data-collection-prev]');
++    const next = controls.querySelector('[data-collection-next]');
++    const rtl = getComputedStyle(track).direction === 'rtl';
++    const sync = () => {
++      const maximum = track.scrollWidth - track.clientWidth;
++      const position = Math.abs(track.scrollLeft);
++      controls.hidden = maximum < 2;
++      previous.setAttribute('aria-disabled', String(position <= 2));
++      next.setAttribute('aria-disabled', String(position >= maximum - 2));
++    };
++    const scroll = direction => track.scrollBy({ left: direction * (rtl ? -1 : 1) * track.clientWidth * 0.85, behavior: reduced.matches ? 'instant' : 'smooth' });
++    previous.addEventListener('click', () => { if (previous.getAttribute('aria-disabled') !== 'true') scroll(-1); });
++    next.addEventListener('click', () => { if (next.getAttribute('aria-disabled') !== 'true') scroll(1); });
++    track.addEventListener('keydown', event => {
++      if (event.target !== track || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
++      event.preventDefault();
++      if (event.key === 'Home' || event.key === 'End') track.scrollTo({ left: event.key === 'Home' ? 0 : (rtl ? -1 : 1) * track.scrollWidth, behavior: reduced.matches ? 'instant' : 'smooth' });
++      else scroll((event.key === 'ArrowRight' ? 1 : -1) * (rtl ? -1 : 1));
++    });
++    track.addEventListener('scroll', sync, { passive: true });
++    if ('ResizeObserver' in window) new ResizeObserver(sync).observe(track);
++    else window.addEventListener('resize', sync, { passive: true });
++    sync();
++  });
++  document.querySelectorAll('[data-storefront-slider]').forEach(root => {
++    if (root.dataset.sliderReady) return;
++    root.dataset.sliderReady = 'true';
++    root.querySelectorAll('img').forEach(img => {
++      const failed = () => { img.hidden = true; };
++      img.addEventListener('error', failed);
++      if (img.complete && !img.naturalWidth) failed();
++    });
++    const slides = [...root.querySelectorAll('[data-storefront-slide]')];
++    if (slides.length < 2) return;
++    const viewport = root.querySelector('[data-storefront-viewport]');
++    const controls = root.querySelector('[data-storefront-controls]');
++    const status = root.querySelector('[data-storefront-status]');
++    const play = root.querySelector('[data-storefront-play]');
++    const interval = Math.max(4, Math.min(20, Number(root.dataset.interval) || 7)) * 1000;
++    let current = 0, timer, hovered = false, focused = false;
++    let paused = root.dataset.autoplay !== 'true' || reduced.matches;
++    const show = index => {
++      if (slides[current].contains(document.activeElement)) viewport.focus({ preventScroll: true });
++      current = (index + slides.length) % slides.length;
++      slides.forEach((slide, i) => { slide.hidden = i !== current; slide.inert = i !== current; });
++      status.textContent = `${current + 1} / ${slides.length}`;
++    };
++    const sync = () => {
++      clearInterval(timer);
++      const running = !paused && !reduced.matches && !hovered && !focused && !document.hidden;
++      status.setAttribute('aria-live', running ? 'off' : 'polite');
++      if (play) {
++        play.textContent = paused || reduced.matches ? '▷' : 'Ⅱ';
++        play.setAttribute('aria-label', paused || reduced.matches ? play.dataset.playLabel : play.dataset.pauseLabel);
++        play.disabled = reduced.matches;
++      }
++      if (running) timer = setInterval(() => show(current + 1), interval);
++    };
++    const manual = index => { paused = true; show(index); sync(); };
++    root.classList.add('is-enhanced'); controls.hidden = false;
++    root.querySelector('[data-storefront-prev]')?.addEventListener('click', () => manual(current - 1));
++    root.querySelector('[data-storefront-next]')?.addEventListener('click', () => manual(current + 1));
++    play?.addEventListener('click', () => { paused = !paused; sync(); });
++    root.addEventListener('mouseenter', () => { hovered = true; sync(); });
++    root.addEventListener('mouseleave', () => { hovered = false; sync(); });
++    root.addEventListener('focusin', () => { focused = true; sync(); });
++    root.addEventListener('focusout', event => { if (!root.contains(event.relatedTarget)) { focused = false; sync(); } });
++    viewport.tabIndex = 0;
++    viewport.addEventListener('keydown', event => {
++      if (event.target !== viewport || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
++      event.preventDefault(); manual(current + (event.key === 'ArrowRight' ? 1 : -1));
++    });
++    let start;
++    viewport.addEventListener('touchstart', event => { start = { x: event.touches[0].clientX, y: event.touches[0].clientY }; }, { passive: true });
++    viewport.addEventListener('touchend', event => {
++      if (!start) return;
++      const dx = event.changedTouches[0].clientX - start.x, dy = event.changedTouches[0].clientY - start.y;
++      if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy)) manual(current + (dx < 0 ? 1 : -1));
++      start = null;
++    }, { passive: true });
++    viewport.addEventListener('touchcancel', () => { start = null; });
++    reduced.addEventListener('change', () => { if (reduced.matches) paused = true; sync(); });
++    document.addEventListener('visibilitychange', sync);
++    show(0); sync();
++  });
++}
+--- a/resources/views/front-page.blade.php
++++ b/resources/views/front-page.blade.php
+@@ -1,8 +1,9 @@
+ @extends('layouts.app')
+ 
+ @section('content')
+-@include('sections.promo-slider')
+ <div class="hf-home">
++  @if (! get_theme_mod('sage_home_show_hero', true))<h1 class="sr-only">{{ get_bloginfo('name') }}</h1>@endif
++  @if (get_theme_mod('sage_home_show_hero', true))
+   <section class="hf-hero" aria-labelledby="hf-title">
+     <div class="hf-container hf-hero__edition" aria-hidden="true"><span>{{ get_bloginfo('name') }} / {{ __('The everyday collection', 'sage') }}</span><span>{{ __('Good things, found here', 'sage') }} <b>✳</b></span></div>
+     <div class="hf-container hf-hero__grid">
+@@ -14,9 +15,9 @@
+           @if ($storefront['enabled'])
+             <a class="hf-button" href="{{ esc_url($storefront['shop']) }}">{{ __('Explore the shop', 'sage') }} <span aria-hidden="true">↗</span></a>
+           @endif
+-          @if ($storefront['offers'])
+-            <a class="hf-text-link" href="#home-specials">{{ __('See current specials', 'sage') }} <span aria-hidden="true">→</span></a>
+-          @elseif ($storefront['categories'])
++          @if ($storefront['specialsAnchor'])
++            <a class="hf-text-link" href="#{{ $storefront['specialsAnchor'] }}">{{ __('See current specials', 'sage') }} <span aria-hidden="true">→</span></a>
++          @elseif ($storefront['categories'] && get_theme_mod('sage_home_show_categories', true))
+             <a class="hf-text-link" href="#home-categories">{{ __('Find your category', 'sage') }} <span aria-hidden="true">↓</span></a>
+           @endif
+         </div>
+@@ -54,7 +55,9 @@
+     </div>
+   </div>
+ 
+-  @if ($storefront['categories'])
++  @endif
++
++  @if ($storefront['categories'] && get_theme_mod('sage_home_show_categories', true))
+     <section class="hf-section hf-container" id="home-categories" aria-labelledby="hf-categories-title">
+       <div class="hf-section-head" data-home-reveal>
+         <div><p class="hf-eyebrow">{{ __('A good place to start', 'sage') }}</p><h2 id="hf-categories-title">{{ __('What are you looking for?', 'sage') }}</h2></div>
+@@ -80,37 +83,11 @@
+     </section>
+   @endif
+ 
+-  @if ($storefront['offers'])
+-    <section class="hf-specials" id="home-specials" aria-labelledby="hf-specials-title">
+-      <div class="hf-container hf-section">
+-        <div class="hf-section-head" data-home-reveal>
+-          <div><p class="hf-eyebrow">{{ __('Worth a closer look', 'sage') }}</p><h2 id="hf-specials-title">{{ __('Good finds. Better prices.', 'sage') }}</h2></div>
+-          <p class="hf-section-note">{{ __('Current offers, straight from our shelves.', 'sage') }}</p>
+-        </div>
+-        <div class="hf-products">
+-          @foreach ($storefront['offers'] as $item)
+-            @include('partials.home.product', ['item' => $item])
+-          @endforeach
+-        </div>
+-      </div>
+-    </section>
+-  @endif
++  @foreach ($productStrips as $strip)
++    @include('sections.product-strip', ['strip' => $strip])
++  @endforeach
+ 
+-  @if ($storefront['latest'])
+-    <section class="hf-section hf-container hf-recent" aria-labelledby="hf-new-title">
+-      <div class="hf-section-head" data-home-reveal>
+-        <div><p class="hf-eyebrow">{{ __('Fresh on the shelves', 'sage') }}</p><h2 id="hf-new-title">{{ __('Meet your next favourite.', 'sage') }}</h2></div>
+-        <a class="hf-text-link" href="{{ esc_url($storefront['shop']) }}">{{ __('Explore the collection', 'sage') }} <span aria-hidden="true">↗</span></a>
+-      </div>
+-      <p class="sage-guide hf-recent__guide">{{ __('Product options and availability are shown on each product page.', 'sage') }}</p>
+-      <div class="hf-products hf-products--recent">
+-        @foreach ($storefront['latest'] as $item)
+-          @include('partials.home.product', ['item' => $item])
+-        @endforeach
+-      </div>
+-    </section>
+-  @endif
+-
++  @if (get_theme_mod('sage_home_show_story', true))
+   <section class="hf-story hf-container" aria-labelledby="hf-story-title" data-home-reveal>
+     <div class="hf-story__brand"><span class="hf-eyebrow">{{ get_bloginfo('name') }}</span><span class="hf-story__symbol" aria-hidden="true">✳</span><span>{{ __('Everyday essentials. Unexpected favourites.', 'sage') }}</span></div>
+     <div class="hf-story__copy"><p class="hf-eyebrow">{{ __('More than a shopping list', 'sage') }}</p><h2 id="hf-story-title">{{ __('Little things.', 'sage') }}<br>{{ __('A lot to love.', 'sage') }}</h2><p>{{ $storefront['about'] }}</p>
+@@ -118,7 +95,9 @@
+     </div>
+   </section>
+ 
+-  @if ($storefront['reviews'])
++  @endif
++
++  @if ($storefront['reviews'] && get_theme_mod('sage_home_show_reviews', true))
+     <section class="hf-section hf-container" aria-labelledby="hf-reviews-title">
+       <div class="hf-section-head" data-home-reveal><div><p class="hf-eyebrow">{{ __('In their own words', 'sage') }}</p><h2 id="hf-reviews-title">{{ __('From our customers.', 'sage') }}</h2></div></div>
+       <div class="hf-reviews">
+@@ -129,6 +108,7 @@
+     </section>
+   @endif
+ 
++  @if (get_theme_mod('sage_home_show_help', true))
+   <section class="hf-help hf-container hf-section" aria-labelledby="hf-help-title">
+     <div data-home-reveal><p class="hf-eyebrow">{{ __('Before you check out', 'sage') }}</p><h2 id="hf-help-title">{{ __('A little help', 'sage') }}<br>{{ __('goes a long way.', 'sage') }}</h2>
+       @if ($storefront['contact'])<a class="hf-text-link" href="{{ esc_url($storefront['contact']) }}">{{ __('Talk to us', 'sage') }} <span aria-hidden="true">↗</span></a>@endif
+@@ -140,7 +120,9 @@
+     </div>
+   </section>
+ 
+-  @if ($storefront['enabled'])
++  @endif
++
++  @if ($storefront['enabled'] && get_theme_mod('sage_home_show_cta', true))
+     <section class="hf-last-call"><div class="hf-container"><p class="hf-eyebrow">{{ __('Your next great find is waiting', 'sage') }}</p><h2>{{ __('Go on. Have a look.', 'sage') }}</h2><a class="hf-button hf-button--dark" href="{{ esc_url($storefront['shop']) }}">{{ __('Shop the collection', 'sage') }} <span aria-hidden="true">↗</span></a></div></section>
+   @endif
+ </div>
+--- a/resources/views/layouts/app.blade.php
++++ b/resources/views/layouts/app.blade.php
+@@ -20,6 +20,9 @@
+       </a>
+ 
+       @include('sections.header')
++      @if (is_front_page())
++        @include('sections.promo-slider')
++      @endif
+       @include('sections.category-strip')
+ 
+       <main id="main" class="main" tabindex="-1">
+--- /dev/null
++++ b/resources/views/partials/collection-controls.blade.php
+@@ -0,0 +1,4 @@
++<div class="sf-collection__controls" data-collection-controls hidden>
++  <button type="button" data-collection-prev aria-controls="{{ $collectionId }}-products" aria-label="{{ esc_attr__('Previous products', 'sage') }}">←</button>
++  <button type="button" data-collection-next aria-controls="{{ $collectionId }}-products" aria-label="{{ esc_attr__('Next products', 'sage') }}">→</button>
++</div>
+--- a/resources/views/partials/home/product.blade.php
++++ b/resources/views/partials/home/product.blade.php
+@@ -1,4 +1,4 @@
+-<article class="hf-product" data-home-reveal>
++<article class="hf-product {{ get_theme_mod('sage_cards_hover', true) ? '' : 'hf-product--no-hover' }}" data-home-reveal>
+   <a class="hf-product__image" href="{{ esc_url($item->get_permalink()) }}" aria-label="{{ esc_attr($item->get_name()) }}">
+     {!! $item->get_image('woocommerce_thumbnail', ['loading' => 'lazy', 'decoding' => 'async']) !!}
+     @if (! $item->is_in_stock())
+@@ -9,11 +9,12 @@
+     <span class="hf-product__peek" aria-hidden="true">↗</span>
+   </a>
+   <div class="hf-product__body">
+-    @if ($item->get_rating_count() > 0 && wc_review_ratings_enabled())
++    @if (get_theme_mod('sage_cards_ratings', true) && $item->get_rating_count() > 0 && wc_review_ratings_enabled())
+       <div class="hf-product__rating">{!! wc_get_rating_html($item->get_average_rating(), $item->get_rating_count()) !!}<span>({{ number_format_i18n($item->get_rating_count()) }})</span></div>
+     @endif
+     <h3><a href="{{ esc_url($item->get_permalink()) }}">{{ $item->get_name() }}</a></h3>
+     <div class="hf-product__price">{!! $item->get_price_html() !!}</div>
++    @if (get_theme_mod('sage_cards_cart', true))
+     <div class="hf-product__action">
+       @php
+         $previousProduct = $GLOBALS['product'] ?? null;
+@@ -27,5 +28,6 @@
+         }
+       @endphp
+     </div>
++    @endif
+   </div>
+ </article>
+--- /dev/null
++++ b/resources/views/partials/product-collection.blade.php
+@@ -0,0 +1,5 @@
++<div id="{{ $collectionId }}-products" class="sf-collection__products sf-collection__products--{{ $layout === 'scroll' ? 'scroll' : 'grid' }}" style="--sf-columns: {{ \App\Storefront::number($columns, 2, 6) }}" @if ($layout === 'scroll') data-collection-track tabindex="0" role="region" aria-labelledby="{{ $collectionId }}-title" @endif>
++  @foreach ($products as $item)
++    @include('partials.home.product', ['item' => $item])
++  @endforeach
++</div>
+--- /dev/null
++++ b/resources/views/sections/product-strip.blade.php
+@@ -0,0 +1,18 @@
++@php
++  $collectionId = 'home-strip-'.$strip['id'];
++  $products = $strip['products'];
++@endphp
++@if ($products)
++<section id="{{ $collectionId }}" class="sf-collection hf-container {{ get_theme_mod('sage_strips_spacing', 'comfortable') === 'compact' ? 'sf-collection--compact' : '' }}" aria-labelledby="{{ $collectionId }}-title" data-product-collection>
++  <div class="sf-collection__header flex flex-wrap items-end justify-between gap-4">
++    <h2 id="{{ $collectionId }}-title">{{ $strip['heading'] }}</h2>
++    <div class="sf-collection__actions flex items-center gap-3">
++      @if ($strip['url'])<a class="sf-collection__link" href="{{ esc_url($strip['url']) }}">{{ __('View collection', 'sage') }} <span aria-hidden="true">↗</span></a>@endif
++      @if ($strip['layout'] === 'scroll')
++        @include('partials.collection-controls', ['collectionId' => $collectionId])
++      @endif
++    </div>
++  </div>
++  @include('partials.product-collection', ['products' => $products, 'collectionId' => $collectionId, 'layout' => $strip['layout'], 'columns' => $strip['columns']])
++</section>
++@endif
+--- a/resources/views/sections/promo-slider.blade.php
++++ b/resources/views/sections/promo-slider.blade.php
+@@ -1,28 +1,30 @@
+ @if ($promoSlides)
+-<section class="sage-promo" data-promo-slider data-autoplay="{{ $promoAutoplay ? 'true' : 'false' }}" aria-label="{{ esc_attr__('Store highlights', 'sage') }}" aria-roledescription="{{ esc_attr__('carousel', 'sage') }}">
+-  <div class="sage-promo__viewport" data-promo-viewport>
++<section class="sf-hero" data-storefront-slider data-autoplay="{{ $promoAutoplay ? 'true' : 'false' }}" data-interval="{{ $promoInterval }}" style="--sf-hero-height: {{ $promoHeight }}px; --sf-hero-mobile-height: {{ $promoMobileHeight }}px; --sf-overlay: {{ $promoOverlay / 100 }}" aria-label="{{ esc_attr__('Store highlights', 'sage') }}" aria-roledescription="{{ esc_attr__('carousel', 'sage') }}">
++  <div class="sf-hero__viewport" data-storefront-viewport>
+     @foreach ($promoSlides as $slide)
+-      <article class="sage-promo__slide {{ $slide['image'] ? 'sage-promo__slide--image' : '' }}" data-promo-slide role="group" aria-roledescription="{{ esc_attr__('slide', 'sage') }}" aria-label="{{ sprintf(__('%1$d of %2$d', 'sage'), $loop->iteration, count($promoSlides)) }}">
+-        <div class="sage-promo__copy">
+-          @if ($slide['eyebrow'])<p class="sage-promo__eyebrow">{{ $slide['eyebrow'] }}</p>@endif
++      <article class="sf-hero__slide" data-storefront-slide role="group" aria-roledescription="{{ esc_attr__('slide', 'sage') }}" aria-label="{{ sprintf(__('%1$d of %2$d', 'sage'), $loop->iteration, count($promoSlides)) }}">
++        <div class="sf-hero__image" aria-hidden="true">
++          @if ($slide['image'])
++            {!! wp_get_attachment_image($slide['image'], 'full', false, ['loading' => $loop->first ? 'eager' : 'lazy', 'fetchpriority' => $loop->first ? 'high' : 'auto', 'decoding' => 'async', 'sizes' => '100vw', 'alt' => '']) !!}
++          @elseif ($slide['imageUrl'])
++            <img src="{{ esc_url($slide['imageUrl']) }}" alt="" width="1920" height="720" loading="{{ $loop->first ? 'eager' : 'lazy' }}" fetchpriority="{{ $loop->first ? 'high' : 'auto' }}" decoding="async">
++          @endif
++        </div>
++        <div class="sf-hero__copy">
++          @if ($slide['eyebrow'])<p class="sf-hero__eyebrow">{{ $slide['eyebrow'] }}</p>@endif
+           @if ($slide['title'])<h2>{{ $slide['title'] }}</h2>@endif
+-          @if ($slide['text'])<p class="sage-promo__text">{{ $slide['text'] }}</p>@endif
+-          @if ($slide['url'] && $slide['label'])<a class="sage-promo__link" href="{{ esc_url($slide['url']) }}">{{ $slide['label'] }} <span aria-hidden="true">↗</span></a>@endif
++          @if ($slide['text'])<p class="sf-hero__text">{{ $slide['text'] }}</p>@endif
++          @if ($slide['url'] && $slide['label'])<a class="sf-hero__link" href="{{ esc_url($slide['url']) }}">{{ $slide['label'] }} <span aria-hidden="true">↗</span></a>@endif
+         </div>
+-        @if ($slide['image'])
+-          <div class="sage-promo__image">{!! wp_get_attachment_image($slide['image'], 'large', false, ['loading' => $loop->first ? 'eager' : 'lazy', 'decoding' => 'async']) !!}</div>
+-        @else
+-          <div class="sage-promo__art" aria-hidden="true"><span>✳</span></div>
+-        @endif
+       </article>
+     @endforeach
+   </div>
+   @if (count($promoSlides) > 1)
+-    <div class="sage-promo__controls" data-promo-controls hidden>
+-      <button type="button" data-promo-prev aria-label="{{ esc_attr__('Previous slide', 'sage') }}">←</button>
+-      <span class="sage-promo__status" data-promo-status aria-live="polite" aria-atomic="true">1 / {{ count($promoSlides) }}</span>
+-      <button type="button" data-promo-next aria-label="{{ esc_attr__('Next slide', 'sage') }}">→</button>
+-      @if ($promoAutoplay)<button type="button" data-promo-play data-play-label="{{ esc_attr__('Play slides', 'sage') }}" data-pause-label="{{ esc_attr__('Pause slides', 'sage') }}" aria-label="{{ esc_attr__('Pause slides', 'sage') }}">Ⅱ</button>@endif
++    <div class="sf-hero__controls" data-storefront-controls hidden>
++      @if ($promoArrows)<button type="button" data-storefront-prev aria-label="{{ esc_attr__('Previous slide', 'sage') }}">←</button>@endif
++      <span data-storefront-status aria-live="polite" aria-atomic="true">1 / {{ count($promoSlides) }}</span>
++      @if ($promoArrows)<button type="button" data-storefront-next aria-label="{{ esc_attr__('Next slide', 'sage') }}">→</button>@endif
++      @if ($promoAutoplay)<button type="button" data-storefront-play data-play-label="{{ esc_attr__('Play slides', 'sage') }}" data-pause-label="{{ esc_attr__('Pause slides', 'sage') }}" aria-label="{{ esc_attr__('Pause slides', 'sage') }}">Ⅱ</button>@endif
+     </div>
+   @endif
+ </section>
+--- /dev/null
++++ b/resources/views/woocommerce/single-product/related.blade.php
+@@ -0,0 +1,22 @@
++@php
++  $collectionId = 'product-related';
++  $layout = get_theme_mod('sage_related_layout', 'grid') === 'scroll' ? 'scroll' : 'grid';
++  $columns = \App\Storefront::number(get_theme_mod('sage_related_columns', 4), 2, 6);
++  $heading = apply_filters('woocommerce_product_related_products_heading', get_theme_mod('sage_related_heading', __('You may also like', 'sage')));
++  $description = get_theme_mod('sage_related_description', __('A few more finds from the collection.', 'sage'));
++@endphp
++@if ($products)
++<section class="sf-collection sf-collection--related" aria-labelledby="product-related-title" data-product-collection>
++  <div class="sf-collection__header flex flex-wrap items-end justify-between gap-4">
++    <div>
++      <h2 id="product-related-title">{{ $heading ?: __('Related products', 'sage') }}</h2>
++      @if ($description)<p class="sf-collection__intro">{{ $description }}</p>@endif
++    </div>
++    <div class="sf-collection__actions flex items-center gap-3">
++      @if (get_theme_mod('sage_related_shop_link', true))<a class="sf-collection__link" href="{{ esc_url(wc_get_page_permalink('shop')) }}">{{ __('Explore the shop', 'sage') }} ↗</a>@endif
++      @if ($layout === 'scroll')@include('partials.collection-controls', ['collectionId' => $collectionId])@endif
++    </div>
++  </div>
++  @include('partials.product-collection', compact('products', 'collectionId', 'layout', 'columns'))
++</section>
++@endif

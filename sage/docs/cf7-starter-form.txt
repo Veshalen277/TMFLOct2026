@@ -1,0 +1,12 @@
+<div class="sage-form-row">
+<p><label>Your name *
+[text* your-name autocomplete:name]</label></p>
+<p><label>Email address *
+[email* your-email autocomplete:email]</label></p>
+</div>
+<p><label>Subject *
+[text* your-subject]</label></p>
+<p><label>Your message *
+[textarea* your-message]</label></p>
+<p class="sage-form-hint">For an order enquiry, include your order number in your message. Fields marked * are required.</p>
+<p>[submit "Send message"]</p>

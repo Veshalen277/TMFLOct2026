@@ -1,0 +1,77 @@
+{
+  "__preprocessed__": "This file is used to build the theme.json file in the `public/build/assets` directory. The built artifact includes Tailwind's colors, fonts, and font sizes.",
+  "$schema": "https://schemas.wp.org/trunk/theme.json",
+  "version": 3,
+  "settings": {
+    "layout": {
+      "contentSize": "83.75rem",
+      "wideSize": "90rem"
+    },
+    "background": {
+      "backgroundImage": true
+    },
+    "color": {
+      "custom": false,
+      "customDuotone": false,
+      "customGradient": false,
+      "defaultDuotone": false,
+      "defaultGradients": false,
+      "defaultPalette": false,
+      "duotone": [],
+      "palette": [
+        {
+          "slug": "black",
+          "name": "Black",
+          "color": "#111111"
+        },
+        {
+          "slug": "white",
+          "name": "White",
+          "color": "#ffffff"
+        },
+        {
+          "slug": "charcoal",
+          "name": "Charcoal",
+          "color": "#333333"
+        },
+        {
+          "slug": "gray",
+          "name": "Gray",
+          "color": "#777777"
+        },
+        {
+          "slug": "silver",
+          "name": "Silver",
+          "color": "#dddddd"
+        },
+        {
+          "slug": "paper",
+          "name": "Paper",
+          "color": "#f5f5f5"
+        }
+      ]
+    },
+    "custom": {
+      "spacing": {},
+      "typography": {
+        "font-size": {},
+        "line-height": {}
+      }
+    },
+    "spacing": {
+      "padding": true,
+      "units": [
+        "px",
+        "%",
+        "em",
+        "rem",
+        "vw",
+        "vh"
+      ]
+    },
+    "typography": {
+      "defaultFontSizes": false,
+      "customFontSize": false
+    }
+  }
+}

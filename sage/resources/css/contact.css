@@ -1,0 +1,96 @@
+/* Contact Form 7: theme-owned styling, using CF7's documented wrapper/states.
+   No generated IDs, field names, nth-child assumptions or replaced plugin JS. */
+#app .sage-contact { max-width:1480px; margin-inline:auto; padding:42px 24px 56px; color:#191919; }
+#app .sage-contact__heading { padding-bottom:30px; border-bottom:1px solid #ccc; margin-bottom:34px; }
+#app .sage-contact__eyebrow { font:600 10px/1.6 var(--font-sans); letter-spacing:.18em; text-transform:uppercase; }
+#app .sage-contact__heading h1 { display:flex; align-items:center; justify-content:space-between; gap:24px; font:500 clamp(58px,7.4vw,108px)/1.04 var(--font-heading); letter-spacing:-.035em; margin:12px 0 16px; overflow-wrap:anywhere; }
+#app .sage-contact__heading h1 > span { display:grid; place-items:center; flex-shrink:0; width:60px; height:60px; border:1px solid #ccc; border-radius:50%; font:300 30px var(--font-sans); }
+#app .sage-contact__intro { max-width:65ch; font:400 14px/1.85 var(--font-sans); color:#555; }
+#app .sage-contact__layout { display:grid; grid-template-columns:minmax(230px,.8fr) minmax(0,1.4fr); gap:clamp(32px,6vw,90px); align-items:start; }
+#app .sage-contact__details { min-width:0; padding-top:8px; }
+#app .sage-contact__details h2 { font:500 clamp(40px,4vw,58px)/1.08 var(--font-heading); letter-spacing:-.035em; margin:10px 0 18px; }
+#app .sage-contact__note { font:400 13px/1.85 var(--font-sans); color:#606060; max-width:36ch; }
+#app .sage-contact__channels { margin-top:26px; }
+#app .sage-contact__channels > div { padding:16px 0; border-top:1px solid #ddd; }
+#app .sage-contact__channels dt { font:600 10px/1.6 var(--font-sans); letter-spacing:.12em; text-transform:uppercase; margin-bottom:6px; color:#666; }
+#app .sage-contact__channels dd { font:400 14px/1.75 var(--font-sans); white-space:pre-line; overflow-wrap:anywhere; }
+#app .sage-contact__channels a { display:inline-flex; align-items:baseline; gap:12px; text-decoration:underline; text-decoration-color:#bbb; text-underline-offset:5px; }
+#app .sage-contact__channels a:hover { text-decoration-color:#111; }
+#app .sage-contact__signature { display:flex; align-items:center; gap:12px; margin-top:28px; padding-top:20px; border-top:1px solid #ccc; font:600 10px var(--font-sans); text-transform:uppercase; letter-spacing:.1em; }
+#app .sage-contact__signature > span { font-size:42px; line-height:1; font-weight:400; }
+#app .sage-contact__panel { min-width:0; padding:28px 30px; border:1px solid #d6d6d6; background:#f6f6f6; }
+#app .sage-contact__panel-heading { display:flex; align-items:baseline; justify-content:space-between; gap:16px; padding-bottom:20px; margin-bottom:24px; border-bottom:1px solid #d2d2d2; }
+#app .sage-contact__panel-heading h2 { font:500 clamp(32px,3.3vw,46px)/1.1 var(--font-heading); letter-spacing:-.025em; }
+#app .sage-contact__panel-heading > span { font:10px/1 monospace; color:#666; }
+#app .sage-contact-form > p { margin-bottom:18px; font-size:14px; line-height:1.8; }
+#app .sage-contact__setup { padding:18px; border:1px dashed #aaa; }
+#app .sage-contact__privacy { margin:20px 0 0; padding-top:16px; border-top:1px solid #ddd; font:400 11px/1.6 var(--font-sans); color:#606060; }
+#app .sage-contact__privacy a { text-decoration:underline; text-underline-offset:3px; }
+/* Automatically applies to CF7 forms on other theme pages too. */
+#app .wpcf7 { width:100%; max-width:100%; color:#222; font:400 14px/1.6 var(--font-sans); }
+#app .wpcf7 form { margin:0; }
+#app .wpcf7 form p { margin:0 0 20px; }
+#app .wpcf7 form p:last-of-type { margin-bottom:0; }
+#app .wpcf7 label { display:block; font:500 12px/1.7 var(--font-sans); color:#333; }
+#app .wpcf7 .wpcf7-form-control-wrap { display:block; margin-top:7px; min-width:0; }
+#app .wpcf7 :is(input:not([type]),input[type='text'],input[type='email'],input[type='tel'],input[type='url'],input[type='number'],input[type='date'],input[type='password'],input[type='search'],select,textarea) {
+  display:block; box-sizing:border-box; width:100%; min-width:0; max-width:100%; min-height:48px;
+  padding:12px 14px; border:1px solid #bcbcbc; border-radius:2px; background:#fff; color:#111;
+  font:400 16px/1.5 var(--font-sans); box-shadow:none; transition:border-color .18s ease,box-shadow .18s ease;
+}
+#app .wpcf7 textarea { min-height:160px; resize:vertical; }
+#app .wpcf7 select { padding-right:34px; }
+#app .wpcf7 select[multiple] { min-height:120px; }
+#app .wpcf7 :is(input,textarea)::placeholder { color:#747474; opacity:1; }
+#app .wpcf7 :is(input,select,textarea):focus-visible { outline:2px solid #222; outline-offset:3px; border-color:#222; }
+#app .wpcf7 input[type='file'] { display:block; max-width:100%; width:100%; padding:10px; border:1px dashed #aaa; font:400 13px var(--font-sans); background:#fff; }
+#app .wpcf7 input[type='file']::file-selector-button { border:1px solid #bbb; padding:8px 12px; margin-right:12px; background:#eee; color:#111; font:500 12px var(--font-sans); cursor:pointer; }
+#app .wpcf7 :is(input[type='checkbox'],input[type='radio']) { width:18px; height:18px; min-height:0; flex-shrink:0; margin:0; accent-color:#111; vertical-align:middle; }
+#app .wpcf7 .wpcf7-list-item { display:inline-block; margin:6px 18px 6px 0; }
+#app .wpcf7 .wpcf7-list-item label { display:flex; align-items:flex-start; gap:9px; font-weight:400; }
+#app .wpcf7 .wpcf7-list-item input { margin-top:2px; }
+#app .wpcf7 .wpcf7-list-item-label { font-size:12px; line-height:1.75; }
+#app .wpcf7 .wpcf7-acceptance .wpcf7-list-item { margin-right:0; }
+#app .wpcf7 fieldset { min-width:0; margin:0 0 20px; padding:16px; border:1px solid #ccc; }
+#app .wpcf7 legend { padding:0 6px; font-weight:500; }
+#app .wpcf7 :is(input[type='submit'],button[type='submit'],.wpcf7-submit) {
+  display:inline-flex; align-items:center; justify-content:center; min-height:50px; max-width:100%;
+  padding:13px 26px; border:1px solid #111; border-radius:2px; background:#111; color:#fff;
+  font:600 12px/1.6 var(--font-sans); letter-spacing:.025em; cursor:pointer; transition:background .18s ease;
+}
+#app .wpcf7 :is(input[type='submit'],button[type='submit'],.wpcf7-submit):hover { background:#383838; }
+#app .wpcf7 :is(input,button,select,textarea):disabled { opacity:.5; cursor:not-allowed; }
+#app .wpcf7 form.submitting :is(input[type='submit'],button[type='submit']) { opacity:.65; cursor:progress; }
+#app .wpcf7 .wpcf7-spinner { margin:0 0 0 12px; vertical-align:middle; background:#333; }
+/* Keep CF7 in control of hidden/live regions and submission behavior. */
+#app .wpcf7 .wpcf7-not-valid-tip { position:static; display:block; margin-top:6px; padding:0; border:0; background:transparent; color:#222; font:500 12px/1.6 var(--font-sans); }
+#app .wpcf7 :is(input,select,textarea)[aria-invalid='true'] { border-color:#111; border-width:2px; background:#fafafa; }
+#app .wpcf7 form .wpcf7-response-output { margin:22px 0 0; padding:14px 16px; border:1px solid #888; border-left-width:4px; border-radius:2px; background:#eee; color:#222; font:400 13px/1.75 var(--font-sans); overflow-wrap:anywhere; }
+#app .wpcf7 form.sent .wpcf7-response-output { background:#111; color:#fff; border-color:#111; }
+#app .wpcf7 form:is(.invalid,.unaccepted,.spam,.failed,.aborted,.payment-required) .wpcf7-response-output { border-color:#444; background:#eee; color:#111; }
+#app .wpcf7 form:is(.init,.resetting,.submitting) .wpcf7-response-output { display:none; }
+/* Optional starter layout. Ordinary CF7 forms work without any extra classes. */
+#app .wpcf7 .sage-form-row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }
+#app .wpcf7 .sage-form-row > p { min-width:0; margin-bottom:20px; }
+#app .wpcf7 .sage-form-hint { color:#666; font-size:11px; line-height:1.7; }
+@media(max-width:900px) {
+  #app .sage-contact__layout { grid-template-columns:1fr; gap:28px; }
+  #app .sage-contact__details { display:grid; grid-template-columns:1fr 1fr; gap:0 30px; }
+  #app .sage-contact__details > :is(.sage-contact__eyebrow,h2,.sage-contact__note) { grid-column:1; }
+  #app .sage-contact__channels { grid-column:2; grid-row:1 / span 4; margin-top:0; }
+  #app .sage-contact__signature { grid-column:1; }
+}
+@media(max-width:600px) {
+  #app .sage-contact { padding:28px 16px 36px; }
+  #app .sage-contact__heading { margin-bottom:24px; padding-bottom:24px; }
+  #app .sage-contact__heading h1 { font-size:clamp(49px,12vw,70px); }
+  #app .sage-contact__heading h1 > span { width:42px; height:42px; font-size:24px; }
+  #app .sage-contact__details { display:block; }
+  #app .sage-contact__note { max-width:none; }
+  #app .sage-contact__channels { margin-top:20px; }
+  #app .sage-contact__signature { display:none; }
+  #app .sage-contact__panel { padding:22px 18px; }
+  #app .sage-contact__panel-heading { gap:10px; margin-bottom:20px; }
+  #app .wpcf7 .sage-form-row { grid-template-columns:1fr; gap:0; }
+}
+@media(prefers-reduced-motion:reduce) { #app .wpcf7 * { transition:none!important; } }

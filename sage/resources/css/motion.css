@@ -1,0 +1,34 @@
+/* React storefront controls inherit the existing IG Hoosen palette. */
+.sage-commerce { margin-bottom: 2rem; }
+.sage-commerce-nav { display:flex; flex-wrap:wrap; gap:.4rem; border-bottom:1px solid var(--border); padding-bottom:1rem; margin-bottom:1.25rem; }
+.sage-commerce-nav a { padding:.65rem 1rem; border-radius:30px; color:var(--ink); font-weight:600; font-size:.85rem; text-decoration:none; transition:background .28s ease, color .28s ease; }
+.sage-commerce-nav a:hover,.sage-commerce-nav a[aria-current] { background:var(--black); color:white; }
+.sage-catalog-tools,.sage-product-tools { display:flex; flex-wrap:wrap; gap:1rem; justify-content:space-between; align-items:center; }
+.sage-product-search { display:flex; flex:1; gap:.5rem; max-width:650px; }
+.sage-product-search input[type=search] { min-width:0; width:100%; border:1px solid var(--border); border-radius:6px; padding:.8rem; background:white; color:var(--ink); }
+.sage-commerce button { cursor:pointer; min-height:44px; border:1px solid var(--border); border-radius:6px; padding:.7rem 1rem; color:var(--ink); background:white; font:inherit; font-size:.85rem; transition:background .28s ease, box-shadow .28s ease; }
+.sage-commerce button:hover { background:var(--off-white); box-shadow:0 3px 12px #0000000d; }
+.sage-commerce button[aria-pressed=true],.sage-product-search button { background:var(--yellow); border-color:var(--yellow); }
+.sage-view-controls { display:flex; gap:.35rem; }
+.sage-checkout-steps { display:flex; flex-wrap:wrap; gap:1rem 2rem; list-style:none; margin:0; padding:1rem 0; }
+.sage-checkout-steps li { display:flex; gap:.65rem; align-items:center; font-size:.85rem; color:var(--text-muted); }
+.sage-checkout-steps li span { display:grid; place-items:center; width:32px; height:32px; background:var(--off-white); border-radius:50%; }
+.sage-checkout-steps li[aria-current] { color:var(--black); font-weight:700; }
+.sage-checkout-steps li[aria-current] span { background:var(--yellow); }
+.sage-toast-region { position:fixed; bottom:1.5rem; left:50%; transform:translateX(-50%); z-index:10000; max-width:calc(100vw - 2rem); }
+.sage-toast { display:flex; align-items:center; gap:1rem; padding:.75rem 1rem; border:1px solid var(--border); border-radius:12px; background:white; box-shadow:0 10px 40px #00000022; animation:sage-toast-in .28s ease-out; }
+.sage-toast a { color:var(--ink); text-decoration:underline; font-weight:700; }
+.sage-commerce .sage-back-top { position:fixed; right:1rem; bottom:1rem; z-index:999; border-radius:50%; background:var(--yellow); width:46px; height:46px; }
+.sage-commerce :focus-visible { outline:3px solid var(--gold); outline-offset:4px; }
+.wc-page-wrap.sage-list-view ul.products { display:grid!important; grid-template-columns:1fr!important; }
+.wc-page-wrap.sage-list-view ul.products::before,.wc-page-wrap.sage-list-view ul.products::after { display:none!important; }
+.wc-page-wrap.sage-list-view ul.products li.product { width:100%!important; margin:0 0 1rem!important; text-align:left; }
+.wc-page-wrap.sage-list-view ul.products li.product img { width:min(200px,35%)!important; float:left; margin:0 1.5rem 1rem 0!important; }
+.wc-page-wrap ul.products li.product { transition:box-shadow .28s ease, border-color .28s ease!important; }
+@keyframes sage-toast-in { from { opacity:0; translate:0 10px; } to { opacity:1; translate:0 0; } }
+@media(max-width:600px) { .sage-product-search { flex-wrap:wrap; flex-basis:100%; } .sage-product-search button { width:100%; } .sage-checkout-steps { gap:.75rem; } .sage-checkout-steps li { font-size:.75rem; gap:.3rem; } .sage-toast { gap:.5rem; font-size:.8rem; } }
+@media(prefers-reduced-motion:reduce) { html { scroll-behavior:auto!important; } *,*::before,*::after { animation-duration:.01ms!important; animation-iteration-count:1!important; transition-duration:.01ms!important; scroll-behavior:auto!important; } }
+
+.sage-account-switcher { display:flex; flex-wrap:wrap; align-items:center; gap:1rem; }
+.sage-account-switcher label { font-weight:600; }
+.sage-account-switcher select { background:white; border:1px solid var(--border); padding:.8rem; border-radius:6px; min-width:200px; max-width:100%; }
